@@ -33,13 +33,10 @@ def remove_juce_namespaces(source):
     while (match is not None):
         source = source[:match.start()] + source[match.end():]
         end = get_curly_brace_scope_end(source, match.start() - 1)
-        if end != -1:
-            source = source[:end] + source[end + 1:]
-            match = namespace_regex.search(source)
-            continue
-        else:
-            raise ValueError("failed to find the end of the "
-                             + match.group(1) + " namespace")
+        if end == -1:
+            raise ValueError(f"failed to find the end of the {match[1]} namespace")
+        source = source[:end] + source[end + 1:]
+        match = namespace_regex.search(source)
     return source
 
 
@@ -79,18 +76,15 @@ if __name__ == "__main__":
         shutil.rmtree(args.dest_dir)
     except OSError:
         pass
-    except FileNotFoundError:
-        pass
-
     # Get the list of JUCE modules to include.
     if args.subdirs:
         juce_modules = args.subdirs.split(",")
     else:
-        juce_modules = []
-        for item in os.listdir(args.source_dir):
-            if os.path.isdir(os.path.join(args.source_dir, item)):
-                juce_modules.append(item)
-
+        juce_modules = [
+            item
+            for item in os.listdir(args.source_dir)
+            if os.path.isdir(os.path.join(args.source_dir, item))
+        ]
     # Copy the JUCE modules to the temporary directory, and process the source
     # files.
     module_definitions = []
@@ -102,7 +96,7 @@ if __name__ == "__main__":
         shutil.copytree(original_module_dir, module_path)
 
         # Parse the module header to get module information.
-        module_header = os.path.join(module_path, module_name + ".h")
+        module_header = os.path.join(module_path, f"{module_name}.h")
         with open(module_header, "r") as f:
             content = f.read()
         block_info_result = re.match(r".*BEGIN_JUCE_MODULE_DECLARATION"
@@ -111,12 +105,12 @@ if __name__ == "__main__":
                                      content,
                                      re.DOTALL)
         detail_lines = []
-        for line in block_info_result.group(1).split("\n"):
-            stripped_line = line.strip()
-            if stripped_line:
-                result = re.match(r"^.*?description:\s*(.*)$", stripped_line)
-                if result:
-                    short_description = result.group(1)
+        for line in block_info_result[1].split("\n"):
+            if stripped_line := line.strip():
+                if result := re.match(
+                    r"^.*?description:\s*(.*)$", stripped_line
+                ):
+                    short_description = result[1]
                 else:
                     detail_lines.append(stripped_line)
 
@@ -124,16 +118,13 @@ if __name__ == "__main__":
         os.remove(module_header)
 
         # Create a Doxygen group definition for the module.
-        module_definiton = []
-        module_definiton.append("/** @defgroup {n} {n}".format(n=module_name))
-        module_definiton.append("    {d}".format(d=short_description))
-        module_definiton.append("")
-        for line in detail_lines:
-            module_definiton.append("    - {l}".format(l=line))
-        module_definiton.append("")
-        module_definiton.append("    @{")
-        module_definiton.append("*/")
-
+        module_definiton = [
+            "/** @defgroup {n} {n}".format(n=module_name),
+            "    {d}".format(d=short_description),
+            "",
+        ]
+        module_definiton.extend("    - {l}".format(l=line) for line in detail_lines)
+        module_definiton.extend(("", "    @{", "*/"))
         # Create a list of the directories in the module that we can use as
         # subgroups and create the Doxygen group hierarchy string.
         dir_contents = os.listdir(module_path)
@@ -142,10 +133,11 @@ if __name__ == "__main__":
             dir_contents.remove("native")
         except ValueError:
             pass
-        subdirs = []
-        for item in dir_contents:
-            if (os.path.isdir(os.path.join(module_path, item))):
-                subdirs.append(item)
+        subdirs = [
+            item
+            for item in dir_contents
+            if (os.path.isdir(os.path.join(module_path, item)))
+        ]
         module_groups = {}
         for subdir in subdirs:
             subgroup_name = "{n}-{s}".format(n=module_name, s=subdir)
@@ -154,9 +146,7 @@ if __name__ == "__main__":
             module_definiton.append(
                 "/** @defgroup {tag} {n} */".format(tag=subgroup_name, n=subdir)
             )
-        module_definiton.append("")
-        module_definiton.append("/** @} */")
-
+        module_definiton.extend(("", "/** @} */"))
         module_definitions.append("\r\n".join(module_definiton))
 
         # Put the top level files into the main group.
@@ -164,8 +154,8 @@ if __name__ == "__main__":
             add_doxygen_group(os.path.join(module_path, filename), module_name)
 
         # Put subdirectory files into their respective groups.
-        for group_name in module_groups:
-            for dirpath, dirnames, filenames in os.walk(module_groups[group_name]):
+        for group_name, value in module_groups.items():
+            for dirpath, dirnames, filenames in os.walk(value):
                 for filename in filenames:
                     filepath = os.path.join(dirpath, filename)
                     add_doxygen_group(filepath, group_name)

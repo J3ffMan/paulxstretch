@@ -15,9 +15,9 @@ with open(sys.argv[2], 'rb') as infile:
 
     dict = plistlib.load(infile)
 
-    for n in range(0, len(dict['PACKAGES'])):
+    for n in range(len(dict['PACKAGES'])):
         dict['PACKAGES'][n]['PACKAGE_SETTINGS']['VERSION'] = version
-        
+
     with open(sys.argv[3], 'wb') as fp:
         plistlib.dump(dict, fp)
     
